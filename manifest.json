@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Model Table & Pets",
+  "version": "0.1.0",
+  "description": "A periodic table for Gemini's model picker and a viewer for Codex Pets sprites.",
+  "minimum_chrome_version": "123",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Gemini Model Table & Pets",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "css": ["content/native-menu.css"],
+      "js": [
+        "shared/gemini.js",
+        "shared/pet.js",
+        "content/elements.js",
+        "content/picker-style.js",
+        "content/picker.js",
+        "content/gemini-menu.js",
+        "content/pet-overlay.js"
+      ]
+    }
+  ]
+}

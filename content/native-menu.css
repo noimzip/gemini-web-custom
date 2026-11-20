@@ -1,0 +1,4 @@
+[data-gwc-covered], [data-gwc-covered]::backdrop {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
