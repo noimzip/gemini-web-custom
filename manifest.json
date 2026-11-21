@@ -20,6 +20,7 @@
         "content/picker-style.js",
         "content/picker.js",
         "content/gemini-menu.js",
+        "content/pet-chat.js",
         "content/pet-overlay.js"
       ]
     }

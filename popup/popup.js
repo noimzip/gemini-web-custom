@@ -3,6 +3,7 @@
   const labels = japanese ? {
     choose: "ファイルを選択", remove: "削除", visible: "Gemini に表示", preview: "プレビュー",
     hint: "Codex Pets の PNG または WebP スプライトシートを選択してください。",
+    upgrade: "ドラッグ時やチャット中のアニメーションを使うには、元のスプライトシートをもう一度選択してください。",
     imported: "ペットを読み込みました。", removed: "読み込んだペットを削除しました。",
     format: "20 MiB 以下の PNG または WebP を選択してください。",
     size: "1536 × 1872（v1）または 1536 × 2288（v2）のスプライトシートが必要です。",
@@ -11,6 +12,7 @@
   } : {
     choose: "Choose file", remove: "Remove", visible: "Show in Gemini", preview: "Preview",
     hint: "Choose a Codex Pets sprite sheet in PNG or WebP format.",
+    upgrade: "Choose the original sprite sheet again to enable drag and chat animations.",
     imported: "Pet imported.", removed: "Pet removed.",
     format: "Choose a PNG or WebP file up to 20 MiB.",
     size: "Choose a 1536 × 1872 (v1) or 1536 × 2288 (v2) sprite sheet.",
@@ -22,6 +24,7 @@
 
   const petSection = document.querySelector("#pet");
   const preview = document.querySelector("#preview");
+  const hint = document.querySelector("#hint");
   const name = document.querySelector("#name");
   const choose = document.querySelector("#choose");
   const fileInput = document.querySelector("#file");
@@ -31,8 +34,8 @@
   petSection.setAttribute("aria-label", labels.preview);
 
   let pet;
-  let stopPreview;
-  let previewStrip;
+  let previewPlayer;
+  let previewData;
 
   function message(text, error = false) {
     status.textContent = text;
@@ -45,10 +48,12 @@
     name.textContent = pet?.name ?? "";
     name.title = name.textContent;
     visible.checked = Boolean(pet?.visible);
-    if (pet?.idleStrip !== previewStrip) {
-      stopPreview?.();
-      previewStrip = pet?.idleStrip;
-      stopPreview = previewStrip ? playPet(preview, previewStrip) : null;
+    hint.textContent = pet?.idleStrip && !pet.atlas ? labels.upgrade : labels.hint;
+    const sprite = petSprite(pet);
+    if (sprite?.data !== previewData) {
+      previewPlayer?.stop();
+      previewData = sprite?.data;
+      previewPlayer = sprite ? playPet(preview, sprite) : null;
     }
   }
 
@@ -58,7 +63,7 @@
     visible.disabled = value;
   }
 
-  async function extractIdle(file) {
+  async function extractAtlas(file) {
     if (file.size > 20 * 1024 ** 2) throw new Error(labels.format);
     const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
     const png = [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => header[index] === byte);
@@ -74,19 +79,30 @@
     }
     try {
       if (bitmap.width !== 1536 || ![1872, 2288].includes(bitmap.height)) throw new Error(labels.size);
-      const {width, height, count} = petFrame;
-      const strip = document.createElement("canvas");
-      strip.width = width * count;
-      strip.height = height;
-      const ctx = strip.getContext("2d", {willReadFrequently: true});
-      ctx.drawImage(bitmap, 0, 0, strip.width, height, 0, 0, strip.width, height);
-
-      for (let frame = 0; frame < count; frame++) {
-        const {data} = ctx.getImageData(frame * width, 0, width, height);
-        if (!data.some((alpha, index) => index % 4 === 3 && alpha > 0)) throw new Error(labels.idle);
+      const {width, height, columns} = petFrame;
+      const atlas = document.createElement("canvas");
+      atlas.width = columns * width;
+      atlas.height = 9 * height;
+      const ctx = atlas.getContext("2d", {willReadFrequently: true});
+      ctx.drawImage(bitmap, 0, 0);
+      const animations = [];
+      for (const [name, {row, durations}] of Object.entries(petAnimations)) {
+        const complete = durations.every((_, frame) => {
+          const {data} = ctx.getImageData(frame * width, row * height, width, height);
+          return data.some((alpha, index) => index % 4 === 3 && alpha > 0);
+        });
+        if (complete) animations.push(name);
       }
-      // Keeping the idle strip makes both supported atlas sizes fit in Chrome's local storage quota.
-      return strip.toDataURL("image/png").split(",", 2)[1];
+      if (!animations.includes("idle")) throw new Error(labels.idle);
+
+      // Prefer lossless pixels and leave room for settings in Chrome's local storage quota.
+      let type = "image/png";
+      let data = atlas.toDataURL(type).split(",", 2)[1];
+      if (data.length > 9 * 1024 ** 2) {
+        type = "image/webp";
+        data = atlas.toDataURL(type, 0.94).split(",", 2)[1];
+      }
+      return {type, data, animations};
     } finally {
       bitmap.close();
     }
@@ -100,8 +116,8 @@
     busy(true);
     message("");
     try {
-      const idleStrip = await extractIdle(file);
-      const next = {idleStrip, name: file.name, visible: true};
+      const atlas = await extractAtlas(file);
+      const next = {atlas, name: file.name, visible: true};
       try {
         await chrome.storage.local.set({[petStorageKey]: next});
       } catch {
